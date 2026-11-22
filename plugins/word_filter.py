@@ -8,10 +8,15 @@ SPAM_PATTERN = re.compile(r"(https?://\S+.*){4,}", re.I)   # 4+ ссылки в 
 
 
 def setup(api):
+    api.add_translations({
+        "en": {"word_filter.spam": "Looks like spam: too many links"},
+        "ru": {"word_filter.spam": "Похоже на спам: слишком много ссылок"},
+    })
+
     @api.on("message:before")
     def moderate(draft):
         if SPAM_PATTERN.search(draft["text"]):
-            raise api.reject("Похоже на спам: слишком много ссылок")
+            raise api.reject("word_filter.spam")   # ключ перевода — пользователь увидит текст на своём языке
         text = draft["text"]
         for word in BAD_WORDS:
             text = re.sub(re.escape(word), lambda m: "*" * len(m.group()), text, flags=re.I)

@@ -15,6 +15,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from . import i18n
 from .db import DB
 from .events import Hub
 from .plugins import PluginError, PluginManager
@@ -44,10 +45,17 @@ CONTENT_TYPES = {
 
 
 class HttpError(Exception):
-    def __init__(self, status, message):
-        super().__init__(message)
+    """Ошибка для клиента. `key` — ключ перевода (err.*) или готовый текст."""
+
+    def __init__(self, status, key, **params):
+        super().__init__(key)
         self.status = status
-        self.message = message
+        self.key = key
+        self.params = params
+
+    @property
+    def message(self):
+        return i18n.t(self.key, **self.params)
 
 
 class Request:
@@ -163,7 +171,7 @@ class Messenger:
     def own_file(self, file_id, user_id):
         f = self.db.one("SELECT * FROM files WHERE id = ?", (int(file_id),))
         if not f or f["owner_id"] != user_id:
-            raise HttpError(404, "Файл не найден")
+            raise HttpError(404, "err.file_not_found")
         return f
 
     # ================================================================ чаты
@@ -180,14 +188,14 @@ class Messenger:
     def require_member(self, chat_id, user_id):
         chat = self.get_chat(chat_id)
         if not chat or not self.is_member(chat_id, user_id):
-            raise HttpError(404, "Чат не найден")
+            raise HttpError(404, "err.chat_not_found")
         return chat
 
     def require_owner(self, chat, user_id):
         if chat["type"] != "group":
-            raise HttpError(400, "Это можно сделать только в группе")
+            raise HttpError(400, "err.group_only")
         if chat["created_by"] != user_id:
-            raise HttpError(403, "Это может только создатель группы")
+            raise HttpError(403, "err.owner_only")
 
     def get_or_create_private(self, user_a, user_b):
         """Личный чат двух пользователей. Если user_a == user_b — это «Избранное»."""
@@ -224,7 +232,7 @@ class Messenger:
         for uid in {creator["id"], *member_ids}:
             if self.get_user(uid):
                 self.db.execute("INSERT OR IGNORE INTO chat_members (chat_id, user_id) VALUES (?, ?)", (chat_id, uid))
-        self.system_message(chat_id, f"{creator['display_name']} создал(а) группу «{title}»")
+        self.system_message(chat_id, "sys.group_created", name=creator["display_name"], title=title)
         self.hub.send_many(self.member_ids(chat_id), "chat:new", {"chat_id": chat_id})
         self.plugins.emit("chat:created", self.get_chat(chat_id))
         return chat_id
@@ -240,7 +248,7 @@ class Messenger:
         peer = None
         if chat["type"] == "private":
             peer = next((m for m in members if m["id"] != for_user_id), me)
-            title = "Избранное" if is_saved else (peer["display_name"] if peer else "Чат")
+            title = i18n.t("chat.saved") if is_saved else (peer["display_name"] if peer else "")
             avatar = None if is_saved else (f"/files/{peer['avatar']}" if peer and peer.get("avatar") else None)
         else:
             title = chat["title"]
@@ -279,7 +287,7 @@ class Messenger:
     def reply_preview(self, message_id):
         row = self.db.one("SELECT * FROM messages WHERE id = ?", (message_id,))
         if not row or row["deleted"]:
-            return {"id": message_id, "deleted": True, "text": "Сообщение удалено", "type": "text", "sender_name": ""}
+            return {"id": message_id, "deleted": True, "text": i18n.t("msg.deleted"), "type": "text", "sender_name": ""}
         sender = self.get_user(row["user_id"]) if row["user_id"] else None
         meta = json.loads(row["meta"] or "{}")
         return {
@@ -305,17 +313,21 @@ class Messenger:
         }
         return self.plugins.filter("message:render", msg)
 
-    def system_message(self, chat_id, text):
-        return self.post_message(chat_id, None, text, type="system", run_hooks=False)
+    def system_message(self, chat_id, key, **params):
+        """Системное сообщение. Хранит ключ перевода, клиент показывает его на языке пользователя."""
+        params = {k: str(v) for k, v in params.items()}
+        text = i18n.t(key, lang=i18n.DEFAULT_LANG, **params)
+        return self.post_message(chat_id, None, text, type="system", run_hooks=False,
+                                 meta={"i18n": key, "params": params})
 
     def post_message(self, chat_id, user_id, text, type="text", meta=None, run_hooks=True,
                      reply_to=None, forwarded_from=None):
         text = (text or "").strip()
         meta = meta or {}
         if not text and not meta.get("file"):
-            raise HttpError(400, "Пустое сообщение")
+            raise HttpError(400, "err.empty_message")
         if len(text) > MAX_TEXT:
-            raise HttpError(400, f"Сообщение длиннее {MAX_TEXT} символов")
+            raise HttpError(400, "err.too_long", max=MAX_TEXT)
         if reply_to:
             target = self.db.one("SELECT chat_id FROM messages WHERE id = ?", (int(reply_to),))
             reply_to = int(reply_to) if target and target["chat_id"] == chat_id else None
@@ -324,7 +336,7 @@ class Messenger:
         if run_hooks:
             draft = self.plugins.filter("message:before", draft, blockable=True)
             if draft is None:
-                raise HttpError(400, "Сообщение заблокировано")
+                raise HttpError(400, "err.blocked")
         cur = self.db.execute(
             """INSERT INTO messages (chat_id, user_id, text, type, meta, reply_to, forwarded_from, created_at)
                VALUES (?,?,?,?,?,?,?,?)""",
@@ -376,17 +388,25 @@ class Messenger:
                              for n, c in sorted(self.plugins.commands.items())],
             }
 
+        @r("GET", "/api/locales", auth=False)
+        def locales(req):
+            return {"languages": i18n.languages(), "default": i18n.DEFAULT_LANG}
+
+        @r("GET", "/api/locales/{code}", auth=False)
+        def locale(req, code):
+            return i18n.bundle(code)
+
         @r("POST", "/api/register", auth=False)
         def register(req):
             username = str(req.body.get("username", "")).strip()
             password = str(req.body.get("password", ""))
             display_name = str(req.body.get("display_name", "")).strip()[:64] or username
             if not USERNAME_RE.match(username):
-                raise HttpError(400, "Логин: 3–32 символа, латиница, цифры и _")
+                raise HttpError(400, "err.username_invalid")
             if len(password) < 4:
-                raise HttpError(400, "Пароль минимум 4 символа")
+                raise HttpError(400, "err.password_short")
             if self.db.one("SELECT 1 AS x FROM users WHERE username = ?", (username,)):
-                raise HttpError(409, "Такой логин уже занят")
+                raise HttpError(409, "err.username_taken")
             user = self.create_user(username, password, display_name)
             token = self.new_session(user["id"])
             self.get_or_create_private(user["id"], user["id"])  # «Избранное»
@@ -398,7 +418,7 @@ class Messenger:
             user = self.db.one("SELECT * FROM users WHERE username = ? AND is_bot = 0",
                                (str(req.body.get("username", "")).strip(),))
             if not user or not self.check_password(str(req.body.get("password", "")), user["password_hash"]):
-                raise HttpError(401, "Неверный логин или пароль")
+                raise HttpError(401, "err.bad_credentials")
             return {"token": self.new_session(user["id"]), "user": self.user_public(user)}
 
         @r("POST", "/api/logout")
@@ -416,17 +436,17 @@ class Messenger:
             if "display_name" in b:
                 name = str(b["display_name"]).strip()[:64]
                 if not name:
-                    raise HttpError(400, "Имя не может быть пустым")
+                    raise HttpError(400, "err.name_empty")
                 sets["display_name"] = name
             if "bio" in b:
                 sets["bio"] = str(b["bio"] or "").strip()[:200]
             if "username" in b:
                 username = str(b["username"]).strip()
                 if not USERNAME_RE.match(username):
-                    raise HttpError(400, "Логин: 3–32 символа, латиница, цифры и _")
+                    raise HttpError(400, "err.username_invalid")
                 taken = self.db.one("SELECT id FROM users WHERE username = ? AND id != ?", (username, req.user["id"]))
                 if taken:
-                    raise HttpError(409, "Такой логин уже занят")
+                    raise HttpError(409, "err.username_taken")
                 sets["username"] = username
             if "avatar_file_id" in b:
                 if b["avatar_file_id"] is None:
@@ -434,7 +454,7 @@ class Messenger:
                 else:
                     f = self.own_file(b["avatar_file_id"], req.user["id"])
                     if not IMAGE_MIME.match(f["mime"]):
-                        raise HttpError(400, "Аватар должен быть картинкой (png, jpg, gif, webp)")
+                        raise HttpError(400, "err.image_required")
                     sets["avatar"] = f["token"]
             if sets:
                 cols = ", ".join(f"{k} = ?" for k in sets)
@@ -447,10 +467,10 @@ class Messenger:
         @r("POST", "/api/me/password")
         def change_password(req):
             if not self.check_password(str(req.body.get("old_password", "")), req.user["password_hash"]):
-                raise HttpError(400, "Текущий пароль неверный")
+                raise HttpError(400, "err.wrong_password")
             new = str(req.body.get("new_password", ""))
             if len(new) < 4:
-                raise HttpError(400, "Новый пароль минимум 4 символа")
+                raise HttpError(400, "err.password_short")
             self.db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (self.hash_password(new), req.user["id"]))
             # завершаем все остальные сессии
             self.db.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (req.user["id"], req.token))
@@ -471,14 +491,14 @@ class Messenger:
         def user_profile(req, user_id):
             user = self.get_user(int(user_id))
             if not user:
-                raise HttpError(404, "Пользователь не найден")
+                raise HttpError(404, "err.user_not_found")
             return self.user_public(user)
 
         # ---------------------------------------------------- файлы
         @r("POST", "/api/upload", raw=True)
         def upload(req):
             if not req.raw:
-                raise HttpError(400, "Пустой файл")
+                raise HttpError(400, "err.empty_file")
             name = os.path.basename(unquote(req.headers.get("X-File-Name") or "file"))[:200] or "file"
             mime = (req.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             if not mime or mime == "application/octet-stream":
@@ -513,7 +533,7 @@ class Messenger:
             if kind == "group":
                 title = str(req.body.get("title", "")).strip()[:64]
                 if not title:
-                    raise HttpError(400, "Укажите название группы")
+                    raise HttpError(400, "err.title_required")
                 ids = [int(x) for x in req.body.get("member_ids", [])]
                 chat_id = self.create_group(title, req.user, ids)
             elif kind == "saved":
@@ -521,7 +541,7 @@ class Messenger:
             else:
                 other = self.get_user(int(req.body.get("user_id", 0)))
                 if not other:
-                    raise HttpError(404, "Пользователь не найден")
+                    raise HttpError(404, "err.user_not_found")
                 chat_id = self.get_or_create_private(req.user["id"], other["id"])
             return self.serialize_chat(self.get_chat(chat_id), req.user["id"])
 
@@ -532,19 +552,19 @@ class Messenger:
             if "title" in req.body:
                 title = str(req.body["title"]).strip()[:64]
                 if not title:
-                    raise HttpError(400, "Название не может быть пустым")
+                    raise HttpError(400, "err.title_required")
                 if title != chat["title"]:
                     self.db.execute("UPDATE chats SET title = ? WHERE id = ?", (title, chat["id"]))
-                    self.system_message(chat["id"], f"{req.user['display_name']} изменил(а) название на «{title}»")
+                    self.system_message(chat["id"], "sys.title_changed", name=req.user["display_name"], title=title)
             if "avatar_file_id" in req.body:
                 token = None
                 if req.body["avatar_file_id"] is not None:
                     f = self.own_file(req.body["avatar_file_id"], req.user["id"])
                     if not IMAGE_MIME.match(f["mime"]):
-                        raise HttpError(400, "Нужна картинка (png, jpg, gif, webp)")
+                        raise HttpError(400, "err.image_required")
                     token = f["token"]
                 self.db.execute("UPDATE chats SET avatar = ? WHERE id = ?", (token, chat["id"]))
-                self.system_message(chat["id"], f"{req.user['display_name']} обновил(а) фото группы")
+                self.system_message(chat["id"], "sys.photo_changed", name=req.user["display_name"])
             self.notify_chat_update(chat["id"])
             return self.serialize_chat(self.get_chat(chat["id"]), req.user["id"])
 
@@ -552,16 +572,16 @@ class Messenger:
         def add_member(req, chat_id):
             chat = self.require_member(int(chat_id), req.user["id"])
             if chat["type"] != "group":
-                raise HttpError(400, "Добавлять участников можно только в группу")
+                raise HttpError(400, "err.group_only")
             user = self.get_user(int(req.body.get("user_id", 0)))
             if not user:
-                raise HttpError(404, "Пользователь не найден")
+                raise HttpError(404, "err.user_not_found")
             if self.is_member(chat["id"], user["id"]):
-                raise HttpError(409, "Уже в группе")
+                raise HttpError(409, "err.already_member")
             last = self.db.one("SELECT MAX(id) AS id FROM messages WHERE chat_id = ?", (chat["id"],))["id"] or 0
             self.db.execute("INSERT INTO chat_members (chat_id, user_id, last_read_id) VALUES (?, ?, ?)",
                             (chat["id"], user["id"], last))
-            self.system_message(chat["id"], f"{req.user['display_name']} добавил(а) {user['display_name']}")
+            self.system_message(chat["id"], "sys.member_added", name=req.user["display_name"], target=user["display_name"])
             self.hub.send(user["id"], "chat:new", {"chat_id": chat["id"]})
             self.notify_chat_update(chat["id"])
             self.plugins.emit("chat:member_added", chat["id"], user)
@@ -573,9 +593,9 @@ class Messenger:
             self.require_owner(chat, req.user["id"])
             user = self.get_user(int(user_id))
             if not user or not self.is_member(chat["id"], user["id"]) or user["id"] == req.user["id"]:
-                raise HttpError(400, "Нельзя удалить этого участника")
+                raise HttpError(400, "err.cannot_remove")
             self.db.execute("DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?", (chat["id"], user["id"]))
-            self.system_message(chat["id"], f"{req.user['display_name']} удалил(а) {user['display_name']}")
+            self.system_message(chat["id"], "sys.member_removed", name=req.user["display_name"], target=user["display_name"])
             self.hub.send(user["id"], "chat:removed", {"chat_id": chat["id"]})
             self.notify_chat_update(chat["id"])
             return {"ok": True}
@@ -584,9 +604,9 @@ class Messenger:
         def leave(req, chat_id):
             chat = self.require_member(int(chat_id), req.user["id"])
             if chat["type"] != "group":
-                raise HttpError(400, "Из личного чата выйти нельзя")
+                raise HttpError(400, "err.cannot_leave_private")
             self.db.execute("DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?", (chat["id"], req.user["id"]))
-            self.system_message(chat["id"], f"{req.user['display_name']} покинул(а) группу")
+            self.system_message(chat["id"], "sys.member_left", name=req.user["display_name"])
             self.hub.send(req.user["id"], "chat:removed", {"chat_id": chat["id"]})
             self.notify_chat_update(chat["id"])
             return {"ok": True}
@@ -618,10 +638,12 @@ class Messenger:
                 row = self.db.one("SELECT * FROM messages WHERE id = ? AND chat_id = ? AND deleted = 0",
                                   (int(message_id), chat["id"]))
                 if not row:
-                    raise HttpError(404, "Сообщение не найдено")
+                    raise HttpError(404, "err.message_not_found")
                 self.db.execute("UPDATE chats SET pinned_message_id = ? WHERE id = ?", (row["id"], chat["id"]))
-                snippet = row["text"][:40] or "вложение"
-                self.system_message(chat["id"], f"{req.user['display_name']} закрепил(а) «{snippet}»")
+                if row["text"]:
+                    self.system_message(chat["id"], "sys.pinned", name=req.user["display_name"], snippet=row["text"][:40])
+                else:
+                    self.system_message(chat["id"], "sys.pinned_media", name=req.user["display_name"])
             else:
                 self.db.execute("UPDATE chats SET pinned_message_id = NULL WHERE id = ?", (chat["id"],))
             self.notify_chat_update(chat["id"])
@@ -679,7 +701,7 @@ class Messenger:
                 meta["file"] = self.file_public(f)
                 if b.get("type") == "voice":
                     if not f["mime"].startswith("audio/"):
-                        raise HttpError(400, "Голосовое сообщение должно быть аудио")
+                        raise HttpError(400, "err.voice_audio")
                     kind = "voice"
                     meta["file"]["duration"] = max(0.0, min(float(b.get("duration") or 0), 3600.0))
                 elif IMAGE_MIME.match(f["mime"]):
@@ -695,17 +717,17 @@ class Messenger:
         def edit(req, message_id):
             row = self.db.one("SELECT * FROM messages WHERE id = ? AND deleted = 0", (int(message_id),))
             if not row or row["user_id"] != req.user["id"] or row["type"] in ("system", "voice"):
-                raise HttpError(404, "Сообщение нельзя изменить")
+                raise HttpError(404, "err.cannot_edit")
             text = str(req.body.get("text", "")).strip()
             if not text and row["type"] == "text":
-                raise HttpError(400, "Пустое сообщение")
+                raise HttpError(400, "err.empty_message")
             if len(text) > MAX_TEXT:
-                raise HttpError(400, f"Сообщение длиннее {MAX_TEXT} символов")
+                raise HttpError(400, "err.too_long", max=MAX_TEXT)
             draft = {"chat_id": row["chat_id"], "user_id": row["user_id"], "text": text, "type": row["type"],
                      "meta": json.loads(row["meta"] or "{}"), "editing": True}
             draft = self.plugins.filter("message:before", draft, blockable=True)
             if draft is None:
-                raise HttpError(400, "Сообщение заблокировано")
+                raise HttpError(400, "err.blocked")
             self.db.execute("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?",
                             (draft["text"], time.time(), row["id"]))
             self.refresh_message(row["id"])
@@ -717,11 +739,11 @@ class Messenger:
         def delete(req, message_id):
             row = self.db.one("SELECT * FROM messages WHERE id = ? AND deleted = 0", (int(message_id),))
             if not row or not self.is_member(row["chat_id"], req.user["id"]):
-                raise HttpError(404, "Сообщение не найдено")
+                raise HttpError(404, "err.message_not_found")
             chat = self.get_chat(row["chat_id"])
             is_group_owner = chat["type"] == "group" and chat["created_by"] == req.user["id"]
             if row["user_id"] != req.user["id"] and not is_group_owner:
-                raise HttpError(403, "Можно удалять только свои сообщения")
+                raise HttpError(403, "err.delete_own")
             self.db.execute("UPDATE messages SET deleted = 1 WHERE id = ?", (row["id"],))
             if chat.get("pinned_message_id") == row["id"]:
                 self.db.execute("UPDATE chats SET pinned_message_id = NULL WHERE id = ?", (chat["id"],))
@@ -734,7 +756,7 @@ class Messenger:
         def forward(req, message_id):
             row = self.db.one("SELECT * FROM messages WHERE id = ? AND deleted = 0", (int(message_id),))
             if not row or row["type"] == "system" or not self.is_member(row["chat_id"], req.user["id"]):
-                raise HttpError(404, "Сообщение не найдено")
+                raise HttpError(404, "err.message_not_found")
             target = int(req.body.get("chat_id", 0))
             self.require_member(target, req.user["id"])
             sender = self.get_user(row["user_id"]) if row["user_id"] else None
@@ -784,7 +806,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not chunk:
                     break
                 remaining -= len(chunk)
-            raise HttpError(413, f"Слишком большой файл (максимум {limit // 1024 // 1024} МБ)")
+            raise HttpError(413, "err.file_too_big", mb=limit // 1024 // 1024)
         return self.rfile.read(length) if length else b""
 
     def read_json(self):
@@ -794,13 +816,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = json.loads(data.decode("utf-8"))
         except ValueError:
-            raise HttpError(400, "Некорректный JSON")
+            raise HttpError(400, "err.bad_json")
         return parsed if isinstance(parsed, dict) else {}
 
     def dispatch(self, method):
         url = urlparse(self.path)
         path = url.path
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        i18n.set_lang(i18n.pick(self.headers.get("X-Lang") or self.headers.get("Accept-Language")))
 
         if method == "GET" and path == "/api/events":
             return self.sse(query.get("token"))
@@ -817,7 +840,7 @@ class Handler(BaseHTTPRequestHandler):
                 token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
                 user = self.app.user_by_token(token)
                 if auth and not user:
-                    raise HttpError(401, "Нужна авторизация")
+                    raise HttpError(401, "err.auth_required")
                 body, raw_data = ({}, self.read_raw(MAX_UPLOAD)) if raw else (self.read_json(), None)
                 req = Request(method, path, query, body, user, match.groupdict(), self.headers, raw_data, token)
                 result = fn(req, **match.groupdict())
@@ -826,32 +849,32 @@ class Handler(BaseHTTPRequestHandler):
             except HttpError as e:
                 self.send_json(e.status, {"error": e.message})
             except PluginError as e:
-                self.send_json(400, {"error": str(e)})
+                self.send_json(400, {"error": i18n.t(str(e))})
             except (ValueError, TypeError) as e:
-                self.send_json(400, {"error": f"Некорректные данные: {e}"})
+                self.send_json(400, {"error": i18n.t("err.bad_data", detail=e)})
             except Exception:
                 traceback.print_exc()
-                self.send_json(500, {"error": "Внутренняя ошибка сервера"})
+                self.send_json(500, {"error": i18n.t("err.internal")})
             return
 
         if method == "GET" and not path.startswith("/api/"):
             return self.serve_static(path)
-        self.send_json(404, {"error": "Не найдено"})
+        self.send_json(404, {"error": i18n.t("err.not_found")})
 
     def serve_static(self, path):
         if path.startswith("/plugins/"):
             name = path[len("/plugins/"):]
             allowed = self.app.plugins.client_scripts + self.app.plugins.client_styles
             if name not in allowed:
-                return self.send_json(404, {"error": "Не найдено"})
+                return self.send_json(404, {"error": i18n.t("err.not_found")})
             file_path = os.path.join(PLUGINS_DIR, name)
         else:
             rel = "index.html" if path in ("", "/") else path.lstrip("/")
             file_path = os.path.realpath(os.path.join(STATIC_DIR, rel))
             if not file_path.startswith(os.path.realpath(STATIC_DIR) + os.sep):
-                return self.send_json(404, {"error": "Не найдено"})
+                return self.send_json(404, {"error": i18n.t("err.not_found")})
         if not os.path.isfile(file_path):
-            return self.send_json(404, {"error": "Не найдено"})
+            return self.send_json(404, {"error": i18n.t("err.not_found")})
         with open(file_path, "rb") as f:
             body = f.read()
         self.send_response(200)
@@ -866,7 +889,7 @@ class Handler(BaseHTTPRequestHandler):
         f = self.app.db.one("SELECT * FROM files WHERE token = ?", (token,)) if TOKEN_RE.match(token) else None
         path = os.path.join(self.app.upload_dir, token) if f else None
         if not f or not os.path.isfile(path):
-            return self.send_json(404, {"error": "Файл не найден"})
+            return self.send_json(404, {"error": i18n.t("err.file_not_found")})
         size = os.path.getsize(path)
         start, end, status = 0, size - 1, 200
         rng = self.headers.get("Range")
@@ -913,7 +936,7 @@ class Handler(BaseHTTPRequestHandler):
     def sse(self, token):
         user = self.app.user_by_token(token)
         if not user:
-            return self.send_json(401, {"error": "Нужна авторизация"})
+            return self.send_json(401, {"error": i18n.t("err.auth_required")})
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -943,17 +966,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def create_server(host, port, data_dir):
+    i18n.load()
     os.makedirs(data_dir, exist_ok=True)
     app = Messenger(os.path.join(data_dir, "messenger.db"), os.path.join(data_dir, "uploads"))
 
     # встроенная команда /help — список всех команд, включая команды плагинов
     def help_cmd(ctx):
-        lines = ["Доступные команды:"]
+        lines = [i18n.t("sys.help_title")]
         for name, c in sorted(app.plugins.commands.items()):
-            lines.append(f"/{name} — {c['description']}" if c["description"] else f"/{name}")
+            desc = i18n.t(f"cmd.{name}")
+            desc = c["description"] if desc == f"cmd.{name}" else desc
+            lines.append(f"/{name} — {desc}" if desc else f"/{name}")
         return "\n".join(lines)
 
-    app.plugins.commands["help"] = {"fn": help_cmd, "description": "Список команд", "plugin": "core"}
+    app.plugins.commands["help"] = {"fn": help_cmd, "description": "Commands list", "plugin": "core"}
     app.plugins.load_all(PLUGINS_DIR)
 
     Handler.app = app

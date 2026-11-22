@@ -11,6 +11,8 @@ import os
 import secrets
 import traceback
 
+from . import i18n
+
 
 class PluginError(Exception):
     """Бросьте из хука `message:before`, чтобы отклонить сообщение с понятной причиной."""
@@ -54,6 +56,19 @@ class PluginAPI:
 
     def log(self, *args):
         print(f"[{self.name}]", *args, flush=True)
+
+    # --- переводы -------------------------------------------------------
+    def add_translations(self, translations):
+        """Добавить строки плагина: {"en": {"my.key": "Hello, {name}"}, "ru": {...}}.
+
+        Они попадают и на сервер (api.t), и в клиент (Messenger.t).
+        Описание /команды переводится ключом "cmd.<имя>".
+        """
+        i18n.add(translations)
+
+    def t(self, key, **params):
+        """Перевод на язык текущего пользователя (того, чей запрос обрабатывается)."""
+        return i18n.t(key, **params)
 
     # --- события -------------------------------------------------------
     def on(self, event):
@@ -101,11 +116,11 @@ class PluginAPI:
 
     # --- ошибки ---------------------------------------------------------
     def reject(self, message):
-        """raise api.reject('...') внутри message:before — отклонить сообщение."""
+        """raise api.reject('ключ.перевода' или 'текст') внутри message:before — отклонить сообщение."""
         return PluginError(message)
 
     def error(self, status, message):
-        """raise api.error(404, '...') внутри своего эндпоинта."""
+        """raise api.error(404, 'ключ.перевода' или 'текст') внутри своего эндпоинта."""
         from .app import HttpError
         return HttpError(status, message)
 
@@ -221,4 +236,4 @@ class PluginManager:
         except Exception:
             print(f"[plugins] ошибка в команде /{name}:")
             traceback.print_exc()
-            ctx.reply(f"Команда /{name} завершилась с ошибкой")
+            ctx.reply(i18n.t("sys.command_failed", name=name))

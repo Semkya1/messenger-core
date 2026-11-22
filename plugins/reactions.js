@@ -21,7 +21,7 @@
       .catch((e) => Messenger.toast(e.message));
 
   // Пункт «Реакция» в меню сообщения
-  Messenger.addMessageAction('😊 Реакция', (msg, button) => {
+  Messenger.addMessageAction(Messenger.t('reactions.action'), (msg, button) => {
     document.querySelector('.reaction-picker')?.remove();
     const picker = Messenger.el('div', { class: 'reaction-picker' },
       EMOJIS.map((e) => Messenger.el('button', { onclick: () => { toggle(msg, e); picker.remove(); } }, e)));

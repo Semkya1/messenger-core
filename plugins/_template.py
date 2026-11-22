@@ -9,14 +9,21 @@ def setup(api):
     # 1) Своя таблица в базе
     api.db.execute("CREATE TABLE IF NOT EXISTS my_table (id INTEGER PRIMARY KEY, user_id INTEGER, value TEXT)")
 
-    # 2) Свой бот
-    bot = api.create_bot("mybot", "Мой бот")
+    # 2) Переводы. Ключ "cmd.<команда>" переводит описание команды в подсказках.
+    #    В коде: api.t("my_feature.hello", name=...) на сервере, Messenger.t(...) в браузере.
+    api.add_translations({
+        "en": {"cmd.hello": "Say hello", "my_feature.hello": "Hi, {name}!"},
+        "ru": {"cmd.hello": "Поздороваться", "my_feature.hello": "Привет, {name}!"},
+    })
+
+    # Свой бот
+    bot = api.create_bot("mybot", "My bot")
 
     # 3) /команда
     @api.command("hello", "Поздороваться")
     def hello(ctx):
         # ctx.user, ctx.chat_id, ctx.args, ctx.message
-        ctx.reply(f"Привет, {ctx.user['display_name']}! Аргументы: {ctx.args or '—'}", bot=bot)
+        ctx.reply(api.t("my_feature.hello", name=ctx.user["display_name"]), bot=bot)
         # или просто: return "текст"  -> системное сообщение
 
     # 4) Изменить / заблокировать сообщение ДО сохранения

@@ -1,123 +1,147 @@
-# Базовый мессенджер с плагинами
+**English** | **[Русский](README.ru.md)**
 
-Открытое ядро мессенджера в стиле Telegram: возьмите его и сделайте **свой мессенджер**.
-Свои функции добавляются **плагинами**, ядро при этом трогать не нужно.
+# Messenger Core: a messenger you can extend with plugins
 
-- Нужен только **Python 3.10+**, никаких зависимостей.
-- Сервер и веб-клиент в одном проекте. Запуск одной командой.
+An open-source, Telegram-style messenger core. Take it and build **your own messenger**.
+New features are added as **plugins**, so you never have to touch the core.
 
-## Быстрый старт
+- Only **Python 3.10+** is required, with no dependencies.
+- Server and web client in one project, started with a single command.
+- Multilingual interface (English and Russian so far), and you can add your own language.
+
+## Quick start
 
 ```bash
 git clone https://github.com/Semkya1/messenger-core.git
 cd messenger-core
-python server.py        # в Windows: py server.py
+python server.py        # on Windows: py server.py
 ```
 
-Откройте http://localhost:8000 и зарегистрируйтесь. Чтобы проверить переписку, создайте
-второй аккаунт в окне инкогнито.
+Open http://localhost:8000 and sign up. To try a conversation, create a second account in
+a private (incognito) window.
 
-## Что умеет ядро
+## Features
 
-**Аккаунт и профиль**
-- регистрация и вход (пароли хранятся в виде хэша scrypt)
-- профиль: фото, имя, @username, «о себе»; смена пароля (остальные устройства разлогиниваются)
-- «в сети» и «был(а) в 12:30»
-- тёмная тема, уведомления в браузере
+**Account and profile**
+- sign up and log in (passwords are stored as scrypt hashes)
+- profile: photo, name, @username, bio; password change (logs out other devices)
+- "online" and "last seen at 12:30"
+- dark theme, browser notifications, language switcher
 
-**Чаты**
-- личные чаты, группы, «Избранное» (заметки для себя)
-- группы: название, фото, участники, добавление и удаление участников (создатель группы 👑), выход
-- закреплённое сообщение
-- режим «без звука» для любого чата
-- поиск людей и поиск сообщений внутри чата
-- счётчики непрочитанных, число непрочитанных в заголовке вкладки
+**Chats**
+- private chats, groups, Saved Messages (notes to yourself)
+- groups: title, photo, members, adding and removing members (group owner 👑), leaving
+- pinned message
+- mute any chat
+- people search and message search within a chat
+- unread counters, unread total in the browser tab title
 
-**Сообщения**
-- доставка в реальном времени, «печатает…» и «записывает голосовое…»
-- **голосовые сообщения**: запись с микрофона и плеер с перемоткой
-- фото (просмотр на весь экран), видео, любые файлы; можно перетащить в окно или вставить через Ctrl+V
-- ответы с цитатой, редактирование (метка «изменено»), пересылка, удаление у всех
-- галочки: ✓ отправлено, ✓✓ прочитано
-- кликабельные ссылки, разделители по датам, подгрузка истории при прокрутке
-- /команды с подсказками, боты
+**Messages**
+- real-time delivery, "typing…" and "recording a voice message…"
+- **voice messages**: microphone recording and a player with seeking
+- photos (full-screen viewer), videos, any files; drag them into the window or paste with Ctrl+V
+- replies with quotes, editing (shown as "edited"), forwarding, delete for everyone
+- read receipts: ✓ sent, ✓✓ read
+- clickable links, date separators, history loading on scroll
+- /commands with autocomplete, bots
 
-**Горячие клавиши:** Enter отправляет сообщение, Shift+Enter переносит строку, ↑ в пустом
-поле редактирует последнее сообщение, Esc отменяет действие, двойной клик по сообщению
-открывает ответ на него, правый клик открывает меню сообщения.
+**Shortcuts:** Enter sends, Shift+Enter adds a new line, ↑ in an empty field edits your last
+message, Esc cancels, double-click a message to reply, right-click opens the message menu.
 
-## Как сделать свою фишку
+## Languages
 
-1. Скопируйте `plugins/_template.py` в `plugins/my_feature.py`.
-2. Напишите логику: в шаблоне показаны все возможности плагина.
-3. Перезапустите сервер. Плагин подхватится сам.
+The language is picked automatically from the browser and can be changed on the login page
+or in Settings. All interface texts, server errors and system messages ("Anna created the
+group…") live in one file per language: `static/locales/<code>.json`. Every chat member sees
+system messages in their own language.
 
-Готовые примеры:
+**Adding a language:**
+1. Copy `static/locales/en.json` to a file named after the language code, such as `es.json` or `de.json`.
+2. Set the language name in `"_name"` (for example, `"Español"`) and translate the values. Do not
+   change the keys, and keep placeholders such as `{name}` as they are.
+3. Restart the server and the language appears in the list. Any missing string falls back to English.
 
-| Плагин | Что показывает |
+Send your translation as a pull request so everyone can use it.
+
+The default language (for browsers in languages the project doesn't have) is set with the
+`DEFAULT_LANG` variable and is `en` by default.
+
+## Building your own feature
+
+1. Copy `plugins/_template.py` to `plugins/my_feature.py`.
+2. Write your logic. The template shows everything a plugin can do.
+3. Restart the server. The plugin is picked up automatically.
+
+Example plugins:
+
+| Plugin | What it shows |
 |---|---|
-| `dice_bot.py` | бот, /команды, приветствие новичков, ответы в личке |
-| `word_filter.py` | модерация: замена слов, блокировка спама (работает и при редактировании) |
-| `reactions.py` + `reactions.js` | полная фишка: своя таблица, свой API, данные в сообщениях, пункт в меню, обновление у всех в реальном времени |
+| `dice_bot.py` | a bot, /commands, a welcome message for newcomers, private replies, its own translations |
+| `word_filter.py` | moderation: word masking and spam blocking (also applied when editing) |
+| `reactions.py` + `reactions.js` | a complete feature: its own table, its own API, extra message data, a menu item, live updates for everyone |
 
-### Серверная часть (Python): что доступно плагину через `api`
+### Server side (Python): what a plugin gets through `api`
 
-| Возможность | Как |
+| Capability | How |
 |---|---|
-| Команда | `@api.command("name", "описание")` |
-| Изменить или заблокировать сообщение | `@api.on("message:before")` → вернуть draft или `raise api.reject(...)` |
-| Добавить данные к сообщению | `@api.on("message:render")` |
-| События | `message:after`, `message:edited`, `message:deleted`, `user:registered`, `user:updated`, `chat:created`, `chat:member_added` |
-| Свой эндпоинт | `@api.route("POST", "/api/plugins/x/{id}")`, для файлов `raw=True` |
-| База данных | `api.db.execute / one / all`, `api.db.ensure_column(...)` |
-| Бот | `api.create_bot(...)`, `api.send_message(chat_id, text, bot=bot)` |
-| Реальное время | `api.emit_to_chat(...)`, `api.emit_to_user(...)`, `api.update_message(id)` |
-| JS и CSS для клиента | `api.client_script("x.js")`, `api.client_style("x.css")` |
+| Command | `@api.command("name", "description")` |
+| Change or block a message | `@api.on("message:before")` → return the draft or `raise api.reject(...)` |
+| Add data to a message | `@api.on("message:render")` |
+| Events | `message:after`, `message:edited`, `message:deleted`, `user:registered`, `user:updated`, `chat:created`, `chat:member_added` |
+| Custom endpoint | `@api.route("POST", "/api/plugins/x/{id}")`, use `raw=True` for files |
+| Database | `api.db.execute / one / all`, `api.db.ensure_column(...)` |
+| Bot | `api.create_bot(...)`, `api.send_message(chat_id, text, bot=bot)` |
+| Real time | `api.emit_to_chat(...)`, `api.emit_to_user(...)`, `api.update_message(id)` |
+| Translations | `api.add_translations({"en": {...}, "ru": {...}})`, `api.t("key", name=...)` |
+| Client JS and CSS | `api.client_script("x.js")`, `api.client_style("x.css")` |
 
-### Клиентская часть (JS): объект `window.Messenger`
+### Client side (JS): the `window.Messenger` object
 
-`on(event, fn)`, `addHeaderButton`, `addSidebarButton`, `addMessageAction` (пункт меню
-сообщения), `addMessageDecorator`, `addChatDecorator`, `api`, `upload`, `sendMessage`,
-`openChat`, `openProfile`, `toast`, `modal`, `me`, `currentChat`, `chats`, `messages`.
+`on(event, fn)`, `addHeaderButton`, `addSidebarButton`, `addMessageAction` (message menu
+item), `addMessageDecorator`, `addChatDecorator`, `api`, `upload`, `sendMessage`,
+`openChat`, `openProfile`, `t` (translate), `toast`, `modal`, `me`, `currentChat`, `chats`, `messages`.
 
-### Свой бренд
+### Your own brand
 
-Цвета светлой и тёмной темы заданы переменными в начале `static/style.css`. Название
-меняется в `static/index.html`.
+Light and dark theme colors are CSS variables at the top of `static/style.css`. The app
+name is the `app.name` key in `static/locales/*.json`.
 
-## Настройки запуска
+## Configuration
 
-| Переменная | По умолчанию | Что делает |
+| Variable | Default | What it does |
 |---|---|---|
-| `PORT` | `8000` | порт |
-| `HOST` | `0.0.0.0` | адрес; по умолчанию сервер доступен в локальной сети |
-| `DATA_DIR` | `./data` | папка для базы и загруженных файлов |
-| `MAX_UPLOAD_MB` | `25` | максимальный размер файла |
+| `PORT` | `8000` | port |
+| `HOST` | `0.0.0.0` | bind address; by default the server is reachable on your local network |
+| `DATA_DIR` | `./data` | folder for the database and uploaded files |
+| `MAX_UPLOAD_MB` | `25` | maximum file size |
+| `DEFAULT_LANG` | `en` | default language |
 
-## Структура
+## Project structure
 
 ```
-server.py            запуск
-core/app.py          ядро: пользователи, профили, чаты, сообщения, файлы, HTTP API, realtime (SSE)
-core/plugins.py      система плагинов (PluginAPI)
-core/db.py           SQLite и автоматические миграции
-core/events.py       рассылка событий онлайн-клиентам
-static/              веб-клиент (HTML/CSS/JS, без сборки)
-plugins/             фишки
-data/                база и файлы (создаётся сама, в git не попадает)
+server.py            entry point
+core/app.py          core: users, profiles, chats, messages, files, HTTP API, real time (SSE)
+core/plugins.py      plugin system (PluginAPI)
+core/i18n.py         translations
+core/db.py           SQLite and automatic migrations
+core/events.py       event delivery to online clients
+static/              web client (HTML/CSS/JS, no build step)
+static/locales/      translations, one JSON file per language
+plugins/             features
+data/                database and files (created automatically, not tracked by git)
 ```
 
-## Перед запуском для реальных пользователей
+## Before going live
 
-- **HTTPS обязателен**: без него браузеры не дают доступ к микрофону, а пароли идут открытым
-  текстом. Поставьте перед сервером Caddy или nginx.
-- Ограничьте частоту запросов (rate limit) на уровне прокси.
-- Делайте резервные копии папки `data/`.
-- При большой нагрузке: PostgreSQL вместо SQLite и Redis для рассылки событий.
+- **HTTPS is required**: without it browsers block the microphone, and passwords travel in
+  plain text. Put Caddy or nginx in front of the server.
+- Add rate limiting at the proxy level.
+- Back up the `data/` folder.
+- For heavy load: PostgreSQL instead of SQLite and Redis for event delivery.
+- Not included yet: calls (WebRTC), mobile push notifications (Web Push or FCM), end-to-end
+  encryption, mobile apps. All of these can be built on top of the current API.
 
-## Лицензия
+## License
 
-[MIT](LICENSE): код можно свободно использовать, менять и распространять, в том числе
-в коммерческих проектах. Нужно только сохранить строку об авторстве и текст лицензии.
-- Чего пока нет: звонки (WebRTC), пуш-уведомления на телефон (Web Push или FCM),
-  сквозное шифрование, мобильные приложения. Всё это можно добавить поверх текущего API.
+[MIT](LICENSE): you are free to use, modify and distribute the code, including in commercial
+projects. Just keep the copyright line and the license text.

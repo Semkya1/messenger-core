@@ -14,16 +14,20 @@ def setup(api):
         emoji      TEXT NOT NULL,
         PRIMARY KEY (message_id, user_id, emoji))""")
     api.client_script("reactions.js")
+    api.add_translations({
+        "en": {"reactions.action": "😊 React", "reactions.unknown": "Unknown reaction"},
+        "ru": {"reactions.action": "😊 Реакция", "reactions.unknown": "Такой реакции нет"},
+    })
 
     @api.route("POST", "/api/plugins/reactions/toggle")
     def toggle(req):
         message_id = int(req.body.get("message_id", 0))
         emoji = req.body.get("emoji")
         if emoji not in EMOJIS:
-            raise api.error(400, "Такой реакции нет")
+            raise api.error(400, "reactions.unknown")
         msg = api.db.one("SELECT chat_id FROM messages WHERE id = ? AND deleted = 0", (message_id,))
         if not msg or not api.is_member(msg["chat_id"], req.user["id"]):
-            raise api.error(404, "Сообщение не найдено")
+            raise api.error(404, "err.message_not_found")
         key = (message_id, req.user["id"], emoji)
         if api.db.one("SELECT 1 AS x FROM reactions WHERE message_id=? AND user_id=? AND emoji=?", key):
             api.db.execute("DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?", key)

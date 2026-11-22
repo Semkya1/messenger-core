@@ -1,23 +1,26 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Мессенджер</title>
+  <title>Messenger</title>
   <link rel="stylesheet" href="/style.css">
   <script>document.documentElement.dataset.theme = localStorage.getItem('theme') || 'light';</script>
 </head>
 <body>
+  <!-- Тексты подставляются из static/locales/<язык>.json по атрибутам data-i18n* -->
+
   <!-- Вход / регистрация -->
   <section id="auth" class="auth hidden">
     <form id="auth-form" class="auth-card">
-      <h1>Мессенджер</h1>
-      <input id="auth-username" placeholder="Логин" autocomplete="username" required>
-      <input id="auth-display" placeholder="Имя (как вас видят другие)" class="hidden">
-      <input id="auth-password" type="password" placeholder="Пароль" autocomplete="current-password" required>
+      <h1 data-i18n="app.name">Messenger</h1>
+      <input id="auth-username" data-i18n-placeholder="auth.username" autocomplete="username" required>
+      <input id="auth-display" data-i18n-placeholder="auth.display_name" class="hidden">
+      <input id="auth-password" type="password" data-i18n-placeholder="auth.password" autocomplete="current-password" required>
       <div id="auth-error" class="error"></div>
-      <button type="submit" id="auth-submit">Войти</button>
-      <a href="#" id="auth-toggle">Нет аккаунта? Регистрация</a>
+      <button type="submit" id="auth-submit" data-i18n="auth.login">Log in</button>
+      <a href="#" id="auth-toggle" data-i18n="auth.to_register">Sign up</a>
+      <select id="auth-lang" class="lang-select" aria-label="Language"></select>
     </form>
   </section>
 
@@ -25,26 +28,26 @@
   <section id="main" class="main hidden">
     <aside class="sidebar">
       <div class="sidebar-head">
-        <button id="me-button" class="me" title="Настройки профиля">
+        <button id="me-button" class="me" data-i18n-title="settings.title">
           <span class="avatar" id="me-avatar"></span><span id="me-name"></span>
         </button>
         <div class="sidebar-buttons" id="sidebar-buttons">
-          <button id="open-saved" title="Избранное">🔖</button>
-          <button id="new-group" title="Новая группа">＋</button>
-          <button id="open-settings" title="Настройки">⚙</button>
+          <button id="open-saved" data-i18n-title="chat.saved">🔖</button>
+          <button id="new-group" data-i18n-title="group.new">＋</button>
+          <button id="open-settings" data-i18n-title="settings.title">⚙</button>
         </div>
       </div>
-      <input id="search" class="search" placeholder="Поиск людей и ботов">
+      <input id="search" class="search" data-i18n-placeholder="search.people">
       <div id="search-results" class="list hidden"></div>
       <div id="chat-list" class="list"></div>
     </aside>
 
     <main class="chat">
-      <div id="empty" class="empty">Выберите чат или найдите собеседника через поиск</div>
+      <div id="empty" class="empty" data-i18n="chat.choose">Choose a chat</div>
       <div id="chat-view" class="chat-view hidden">
         <header class="chat-head">
-          <button id="back" class="back" title="Назад">←</button>
-          <button id="chat-info" class="chat-info" title="Информация">
+          <button id="back" class="back" data-i18n-title="common.back">←</button>
+          <button id="chat-info" class="chat-info" data-i18n-title="chat.info">
             <span class="avatar" id="chat-avatar"></span>
             <span class="chat-titles">
               <span id="chat-title" class="chat-title"></span>
@@ -52,26 +55,26 @@
             </span>
           </button>
           <div id="header-buttons" class="header-buttons">
-            <button id="toggle-search" title="Поиск по чату">🔍</button>
+            <button id="toggle-search" data-i18n-title="search.in_chat">🔍</button>
           </div>
         </header>
 
         <div id="chat-search" class="chat-search hidden">
-          <input id="chat-search-input" placeholder="Поиск сообщений">
+          <input id="chat-search-input" data-i18n-placeholder="search.messages">
           <div id="chat-search-results" class="chat-search-results"></div>
         </div>
 
         <div id="pinned" class="pinned hidden">
           <div class="pinned-body">
-            <div class="pinned-label">📌 Закреплённое сообщение</div>
+            <div class="pinned-label">📌 <span data-i18n="pin.label">Pinned message</span></div>
             <div id="pinned-text" class="pinned-text"></div>
           </div>
-          <button id="unpin" class="icon" title="Открепить">✕</button>
+          <button id="unpin" class="icon" data-i18n-title="pin.unpin">✕</button>
         </div>
 
         <div class="messages-wrap">
           <div id="messages" class="messages"></div>
-          <button id="scroll-down" class="scroll-down hidden" title="Вниз">↓<span id="scroll-badge" class="badge hidden"></span></button>
+          <button id="scroll-down" class="scroll-down hidden" data-i18n-title="chat.scroll_down">↓<span id="scroll-badge" class="badge hidden"></span></button>
         </div>
 
         <div class="composer-wrap">
@@ -80,20 +83,20 @@
               <div id="compose-context-title" class="compose-context-title"></div>
               <div id="compose-context-text" class="compose-context-text"></div>
             </div>
-            <button id="compose-context-cancel" class="icon" title="Отмена">✕</button>
+            <button id="compose-context-cancel" class="icon" data-i18n-title="common.cancel">✕</button>
           </div>
           <div id="command-hints" class="command-hints hidden"></div>
           <div id="recording" class="recording hidden">
             <span class="rec-dot"></span><span id="rec-time">0:00</span>
-            <span class="rec-hint">Идёт запись голосового…</span>
-            <button id="rec-cancel" class="secondary">Отмена</button>
-            <button id="rec-send">Отправить</button>
+            <span class="rec-hint" data-i18n="voice.recording">Recording…</span>
+            <button id="rec-cancel" class="secondary" data-i18n="common.cancel">Cancel</button>
+            <button id="rec-send" data-i18n="common.send">Send</button>
           </div>
           <form id="composer" class="composer">
-            <button type="button" id="attach" class="round secondary" title="Прикрепить файл">📎</button>
+            <button type="button" id="attach" class="round secondary" data-i18n-title="composer.attach">📎</button>
             <input type="file" id="file-input" multiple hidden>
-            <textarea id="input" rows="1" placeholder="Сообщение…  (/ — команды)"></textarea>
-            <button type="submit" id="send" class="round" title="Отправить">🎤</button>
+            <textarea id="input" rows="1" data-i18n-placeholder="composer.placeholder"></textarea>
+            <button type="submit" id="send" class="round">🎤</button>
           </form>
         </div>
       </div>
@@ -106,7 +109,7 @@
       <h3 id="modal-title"></h3>
       <div id="modal-body"></div>
       <div class="modal-actions">
-        <button id="modal-cancel" class="secondary">Отмена</button>
+        <button id="modal-cancel" class="secondary" data-i18n="common.cancel">Cancel</button>
         <button id="modal-ok">OK</button>
       </div>
     </div>
@@ -114,7 +117,7 @@
 
   <div id="context-menu" class="context-menu hidden"></div>
   <div id="lightbox" class="lightbox hidden"><img id="lightbox-img" alt=""></div>
-  <div id="drop-overlay" class="drop-overlay hidden">Отпустите, чтобы отправить файлы</div>
+  <div id="drop-overlay" class="drop-overlay hidden" data-i18n="composer.drop">Drop files to send</div>
   <div id="toast" class="toast hidden"></div>
 
   <script src="/app.js"></script>
