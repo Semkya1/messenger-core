@@ -1,0 +1,20 @@
+# Данные пользователей: база и загруженные файлы
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Редакторы и система
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Локальные настройки Claude
+.claude/
